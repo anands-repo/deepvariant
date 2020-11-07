@@ -37,14 +37,14 @@ echo "Performing partitioning"
 input_pattern_list=$(get_dockerized_path "$PATTERN")
 workdir=$(get_dockerized_path "$WORKDIR/partitions")
 
-docker run -it --rm -v $MOUNT_PATTERN --entrypoint python $IMAGE_NAME \
+(docker run -it --rm -v $MOUNT_PATTERN --entrypoint python $IMAGE_NAME \
 	/opt/tools/partition_tfrecords_beam.py \
 		--input_pattern_list="$input_pattern_list" \
 		--workdir="$workdir" \
 		--num_buckets=$NUM_BUCKETS \
 		--direct_num_workers=$NUM_THREADS \
 		--direct_running_mode="multi_processing" \
-		--streaming
+		--streaming) > $WORKDIR/partition.log 2>&1
 
 # Shuffle each partition
 echo "Performing shuffling"
@@ -57,14 +57,14 @@ for i in `seq 0 $((NUM_BUCKETS - 1))`; do
 	output_pattern_prefix=$(get_dockerized_path "$output_pattern_name")
 	output_dataset_name="partition_shuffle${i}"
 	echo "Shuffling partition $i"
-	docker run --rm -it -v $MOUNT_PATTERN --entrypoint python $IMAGE_NAME \
+	(docker run --rm -it -v $MOUNT_PATTERN --entrypoint python $IMAGE_NAME \
 		/opt/tools/shuffle_tfrecords_beam.py \
 			--input_pattern_list="$input_pattern_list" \
 			--output_pattern_prefix="$output_pattern_prefix" \
 			--output_dataset_name="$output_dataset_name" \
 			--direct_num_workers=$NUM_THREADS \
 			--direct_running_mode"multi_processing" \
-			--streaming
+			--streaming) > $WORKDIR/shuffle_${i}.log 2>&1
 done
 
 # Combine all partitions into the output files
@@ -74,7 +74,7 @@ input_pattern_list=$(get_dockerized_path "$WORKDIR/shuffled/shuffled_partition-?
 output_pattern_prefix=$(get_dockerized_path "$WORKDIR/results/combined")
 output_dataset_config_pbtxt=$(get_dockerized_path "$WORKDIR/results/combined_pbtxt.txt")
 
-docker run --rm -t -v $MOUNT_PATTERN --entrypoint python $IMAGE_NAME \
+(docker run --rm -t -v $MOUNT_PATTERN --entrypoint python $IMAGE_NAME \
 	/opt/tools/combine_tfrecords_beam.py \
 		--input_pattern_list="$input_pattern_list" \
 		--output_pattern_prefix="$output_pattern_prefix" \
@@ -82,4 +82,4 @@ docker run --rm -t -v $MOUNT_PATTERN --entrypoint python $IMAGE_NAME \
 		--output_dataset_name="results" \
 		--direct_num_workers=$NUM_THREADS \
 		--direct_running_mode="multi_processing" \
-		--streaming
+		--streaming) > $WORKDIR/combiner.log 2>&1

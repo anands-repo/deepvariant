@@ -111,18 +111,25 @@ touch $WORKDIR/all_shuffle_commands.sh
 
 for i in `seq 0 $((NUM_BUCKETS - 1))`; do
 	partition_prefix=$(printf "%05d" "$i")
-	input_pattern_list=$(get_dockerized_path "$WORKDIR/partitions/partition${partition_prefix}-*")
-	output_pattern_name=$(printf "$WORKDIR/shuffled/shuffled_partition-%05d-" "$i")
-	output_pattern_prefix=$(get_dockerized_path "$output_pattern_name")
+
+	# Create target directory for shuffled partition and move input data there
+	target_directory=$(get_dockerized_path "$WORKDIR/shuffled/partition_shuffle-${partition_prefix}")
+
+	# Set input and output environment variables
+	input_pattern_list="$target_directory/partition${partition_prefix}-*"
+	output_pattern_prefix="$target_directory/shuffled"
 	output_dataset_name="partition_shuffle${i}"
 	shuffle_script_name=$WORKDIR/shuffle_script_${partition_prefix}.sh
 	shuffle_log_name=$WORKDIR/shuffle_log_${partition_prefix}.log
 
+	# Create script
+	source_files=$(get_dockerized_path "$WORKDIR/partitions/partition${partition_prefix}-*")
 	echo "Creating script for shuffling partition $i"
-
 	printf "#!/bin/bash\n\n" > $shuffle_script_name
 	printf "set -e\n\n" >> $shuffle_script_name
 	printf "set -o pipefail\n\n" >> $shuffle_script_name 
+	printf "mkdir -p $target_directory\n" >> $shuffle_script_name
+	printf "mv $source_files $target_directory\n" >> $shuffle_script_name
 	printf "python /opt/tools/shuffle_tfrecords_beam.py \\
 			--input_pattern_list=\"$input_pattern_list\" \\
 			--output_pattern_prefix=\"$output_pattern_prefix\" \\
@@ -155,6 +162,7 @@ for s in $shuffler_commands; do
 	shuffler_service_name="shuffler_${index}-${RANDOM}"
 	index=$((index + 1))
 	shuffler_services+=("$shuffler_service_name")
+	sed '1s?^?#!/bin/bash\nset -e\nset -o pipefail\n?' -i $s
 	docker service create \
 		-t \
 		--name $shuffler_service_name \
@@ -174,7 +182,8 @@ done
 # Combine all partitions into the output files
 echo "Combining shuffler results"
 mkdir -p $WORKDIR/results
-input_pattern_list=$(get_dockerized_path "$WORKDIR/shuffled/shuffled_partition-?????-*")
+
+input_pattern_list=$(get_dockerized_path "$WORKDIR/shuffled/partition_shuffle-?????/shuffled*.gz")
 output_pattern_prefix=$(get_dockerized_path "$WORKDIR/results/combined")
 output_dataset_config_pbtxt=$(get_dockerized_path "$WORKDIR/results/combined_pbtxt.txt")
 
